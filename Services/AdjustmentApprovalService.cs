@@ -24,42 +24,6 @@ namespace Syntera.WMS.API.Services
         }
 
         /// <summary>
-        /// Get all pending adjustments for approval
-        /// </summary>
-        public async Task<List<AdjustmentForApprovalDto>> GetPendingAdjustmentsAsync(int? skuId = null)
-        {
-            var query = _context.InventoryAdjustments
-                .Include(x => x.SKU)
-                .Where(x => x.ApprovalStatus == "Pending" && !x.IsProcessed);
-
-            if (skuId.HasValue)
-                query = query.Where(x => x.SKUId == skuId.Value);
-
-            var results = await query
-                .OrderByDescending(x => x.RequestedAt)
-                .Select(x => new AdjustmentForApprovalDto
-                {
-                    AdjustmentId = x.Id,
-                    AdjustmentNo = x.AdjustmentNo,
-                    SKUId = x.SKUId,
-                    SKUCode = x.SKU!.SKUCode ?? string.Empty,
-                    SKUName = x.SKU!.SKUName ?? string.Empty,
-                    PalletId = x.PalletId,
-                    PrevQty = x.PrevQty,
-                    NewQty = x.NewQty,
-                    AdjustmentType = x.AdjustmentType,
-                    Reason = x.Reason,
-                    Remarks = x.Remarks,
-                    RequestedBy = x.RequestedBy,
-                    RequestedAt = x.RequestedAt,
-                    Status = x.ApprovalStatus
-                })
-                .ToListAsync();
-
-            return results;
-        }
-
-        /// <summary>
         /// Approve an adjustment - updates InventoryStock and creates StockMovement
         /// </summary>
         public async Task<ApprovalResultDto> ApproveAdjustmentAsync(int adjustmentId, int approvedBy)
@@ -198,53 +162,9 @@ namespace Syntera.WMS.API.Services
             };
         }
 
-        /// <summary>
-        /// Get adjustment history (approved/rejected)
-        /// </summary>
-        public async Task<List<AdjustmentHistoryDto>> GetAdjustmentHistoryAsync(int days = 30)
-        {
-            var fromDate = DateTime.UtcNow.AddDays(-days);
-
-            var results = await _context.InventoryAdjustments
-                .Include(x => x.SKU)
-                .Where(x => x.IsProcessed && x.ApprovedAt >= fromDate)
-                .OrderByDescending(x => x.ApprovedAt)
-                .Select(x => new AdjustmentHistoryDto
-                {
-                    AdjustmentNo = x.AdjustmentNo,
-                    SKUCode = x.SKU!.SKUCode ?? string.Empty,
-                    PalletId = x.PalletId,
-                    PrevQty = x.PrevQty,
-                    NewQty = x.NewQty,
-                    ApprovalStatus = x.ApprovalStatus,
-                    Reason = x.Reason,
-                    ApprovedAt = x.ApprovedAt
-                })
-                .ToListAsync();
-
-            return results;
-        }
     }
 
     // ============ DTOs ============
-
-    public class AdjustmentForApprovalDto
-    {
-        public int AdjustmentId { get; set; }
-        public string AdjustmentNo { get; set; } = string.Empty;
-        public int SKUId { get; set; }
-        public string SKUCode { get; set; } = string.Empty;
-        public string SKUName { get; set; } = string.Empty;
-        public string? PalletId { get; set; }
-        public int PrevQty { get; set; }
-        public int NewQty { get; set; }
-        public string? AdjustmentType { get; set; }
-        public string? Reason { get; set; }
-        public string? Remarks { get; set; }
-        public int? RequestedBy { get; set; }
-        public DateTime? RequestedAt { get; set; }
-        public string Status { get; set; } = string.Empty;
-    }
 
     public class ApprovalResultDto
     {
@@ -258,15 +178,4 @@ namespace Syntera.WMS.API.Services
         public string Message { get; set; } = string.Empty;
     }
 
-    public class AdjustmentHistoryDto
-    {
-        public string AdjustmentNo { get; set; } = string.Empty;
-        public string SKUCode { get; set; } = string.Empty;
-        public string? PalletId { get; set; }
-        public int PrevQty { get; set; }
-        public int NewQty { get; set; }
-        public string ApprovalStatus { get; set; } = string.Empty;
-        public string? Reason { get; set; }
-        public DateTime? ApprovedAt { get; set; }
-    }
 }
