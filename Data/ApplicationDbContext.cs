@@ -22,5 +22,25 @@ namespace Syntera.WMS.API.Data
         public DbSet<ReceivingDetail> ReceivingDetails { get; set; }
         public DbSet<User> Users { get; set; }
         public DbSet<Role> Roles { get; set; }
+        public DbSet<PickingHeader> PickingHeaders { get; set; }
+        public DbSet<PickingDetail> PickingDetails { get; set; }
+
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            base.OnModelCreating(modelBuilder);
+
+            // Prevent multiple cascade paths on PickingDetail
+            modelBuilder.Entity<PickingDetail>()
+                .HasOne(d => d.SKU)
+                .WithMany()
+                .HasForeignKey(d => d.SKUId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<PickingDetail>()
+                .HasOne(d => d.InventoryStock)
+                .WithMany()
+                .HasForeignKey(d => d.InventoryStockId)
+                .OnDelete(DeleteBehavior.Restrict);
+        }
     }
 }
