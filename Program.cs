@@ -42,6 +42,7 @@ builder.Services.AddScoped<PutawayService>();
 builder.Services.AddScoped<AdjustmentApprovalService>();
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<PickingService>();
+builder.Services.AddScoped<DispatchService>();
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();

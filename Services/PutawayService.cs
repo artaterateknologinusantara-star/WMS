@@ -89,6 +89,22 @@ namespace Syntera.WMS.API.Services
                     CreatedAt = DateTime.UtcNow
                 });
 
+                // Update ReceivingHeader status when all pallets have been put away
+                var allPalletIds = await _context.ReceivingDetails
+                    .Where(d => d.ReceivingHeaderId == receivingDetail.ReceivingHeaderId)
+                    .Select(d => d.PalletId)
+                    .ToListAsync();
+
+                var putAwayCount = await _context.InventoryStocks
+                    .CountAsync(s => allPalletIds.Contains(s.PalletId));
+
+                if (putAwayCount >= allPalletIds.Count)
+                {
+                    var header = await _context.ReceivingHeaders.FindAsync(receivingDetail.ReceivingHeaderId);
+                    if (header != null)
+                        header.Status = "Putaway";
+                }
+
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
 

@@ -44,29 +44,40 @@ namespace Syntera.WMS.API.Services
                 // Calculate quantity change
                 int qtyChange = adjustment.NewQty - adjustment.PrevQty;
 
-                // Find or create inventory stock for the pallet
-                var stock = await _context.InventoryStocks
-                    .FirstOrDefaultAsync(x => 
-                        x.SKUId == adjustment.SKUId && 
-                        x.PalletId == adjustment.PalletId);
+                // Find active inventory stock: match by PalletId if provided, else first Active pallet for SKU
+                InventoryStock? stock;
+                if (!string.IsNullOrWhiteSpace(adjustment.PalletId))
+                {
+                    stock = await _context.InventoryStocks
+                        .FirstOrDefaultAsync(x =>
+                            x.SKUId == adjustment.SKUId &&
+                            x.PalletId == adjustment.PalletId &&
+                            x.Status == "Active");
+                }
+                else
+                {
+                    stock = await _context.InventoryStocks
+                        .Where(x => x.SKUId == adjustment.SKUId && x.Status == "Active")
+                        .OrderBy(x => x.CreatedAt)
+                        .FirstOrDefaultAsync();
+                }
 
                 int qtyBefore;
                 int? rackId = null;
 
                 if (stock != null)
                 {
-                    // Normal path: pallet has been put away — update InventoryStock
                     qtyBefore = stock.Qty;
                     rackId = stock.RackId;
 
                     stock.Qty = adjustment.NewQty;
-                    stock.AvailableQty = Math.Max(0, stock.AvailableQty + qtyChange);
+                    // Recalculate from new Qty rather than adding delta (avoids drift)
+                    stock.AvailableQty = Math.Max(0, adjustment.NewQty - stock.ReservedQty);
                     stock.LastMovementDate = DateTime.UtcNow;
                     stock.UpdatedAt = DateTime.UtcNow;
                 }
                 else
                 {
-                    // Fallback: no pallet-level stock exists — update MasterSKU directly
                     var sku = adjustment.SKU
                         ?? await _context.MasterSKUs.FindAsync(adjustment.SKUId)
                         ?? throw new InvalidOperationException($"SKU {adjustment.SKUId} not found.");

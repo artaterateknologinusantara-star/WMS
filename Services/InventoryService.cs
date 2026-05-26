@@ -36,7 +36,7 @@ namespace Syntera.WMS.API.Services
             // Aggregate from InventoryStock if exists, else fallback to MasterSKU
             var stockRecords = await _context.InventoryStocks
                 .Include(x => x.Rack)
-                .Where(x => x.SKUId == sku.Id)
+                .Where(x => x.SKUId == sku.Id && x.Status == "Active" && x.Qty > 0)
                 .ToListAsync();
 
             int totalQty = stockRecords.Any() ? stockRecords.Sum(x => x.Qty) : sku.Qty;
@@ -64,7 +64,7 @@ namespace Syntera.WMS.API.Services
                 .Include(x => x.SKU)
                     .ThenInclude(s => s!.UOM)
                 .Include(x => x.Rack)
-                .Where(x => x.Qty > 0)
+                .Where(x => x.Qty > 0 && x.Status == "Active")
                 .OrderByDescending(x => x.LastMovementDate)
                 .ToListAsync();
 

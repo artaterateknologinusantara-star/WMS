@@ -24,6 +24,8 @@ namespace Syntera.WMS.API.Data
         public DbSet<Role> Roles { get; set; }
         public DbSet<PickingHeader> PickingHeaders { get; set; }
         public DbSet<PickingDetail> PickingDetails { get; set; }
+        public DbSet<DispatchHeader> DispatchHeaders { get; set; }
+        public DbSet<DispatchDetail> DispatchDetails { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -40,6 +42,19 @@ namespace Syntera.WMS.API.Data
                 .HasOne(d => d.InventoryStock)
                 .WithMany()
                 .HasForeignKey(d => d.InventoryStockId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Prevent multiple cascade paths on DispatchDetail
+            modelBuilder.Entity<DispatchDetail>()
+                .HasOne(d => d.PickingDetail)
+                .WithMany()
+                .HasForeignKey(d => d.PickingDetailId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<DispatchDetail>()
+                .HasOne(d => d.SKU)
+                .WithMany()
+                .HasForeignKey(d => d.SKUId)
                 .OnDelete(DeleteBehavior.Restrict);
         }
     }

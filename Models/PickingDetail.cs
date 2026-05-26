@@ -26,7 +26,15 @@ namespace Syntera.WMS.API.Models
 
         public int PickedQty { get; set; }
 
-        // Pending | in-progress | picked | error
+        // Stored at creation time so picking process can validate even after stock moves to staging
+        public int? SuggestedRackId { get; set; }
+
+        [ForeignKey("SuggestedRackId")]
+        public BinLocation? SuggestedRack { get; set; }
+
+        public string? SuggestedPalletId { get; set; }
+
+        // pending | in-progress | picked | error
         public string Status { get; set; } = "pending";
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

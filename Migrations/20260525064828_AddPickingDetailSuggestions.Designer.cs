@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Syntera.WMS.API.Data;
 
@@ -11,9 +12,11 @@ using Syntera.WMS.API.Data;
 namespace Syntera.WMS.API.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260525064828_AddPickingDetailSuggestions")]
+    partial class AddPickingDetailSuggestions
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -79,93 +82,6 @@ namespace Syntera.WMS.API.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("Categories");
-                });
-
-            modelBuilder.Entity("Syntera.WMS.API.Models.DispatchDetail", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("DispatchHeaderId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("PalletId")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<int>("PickingDetailId")
-                        .HasColumnType("int");
-
-                    b.Property<int>("Qty")
-                        .HasColumnType("int");
-
-                    b.Property<int>("SKUId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("StagingBinCode")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("DispatchHeaderId");
-
-                    b.HasIndex("PickingDetailId");
-
-                    b.HasIndex("SKUId");
-
-                    b.ToTable("DispatchDetail");
-                });
-
-            modelBuilder.Entity("Syntera.WMS.API.Models.DispatchHeader", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("DispatchNumber")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("DriverName")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("Notes")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("VehicleNumber")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("DispatchHeader");
                 });
 
             modelBuilder.Entity("Syntera.WMS.API.Models.InventoryAdjustment", b =>
@@ -659,33 +575,6 @@ namespace Syntera.WMS.API.Migrations
                     b.ToTable("Users");
                 });
 
-            modelBuilder.Entity("Syntera.WMS.API.Models.DispatchDetail", b =>
-                {
-                    b.HasOne("Syntera.WMS.API.Models.DispatchHeader", "Header")
-                        .WithMany("Details")
-                        .HasForeignKey("DispatchHeaderId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Syntera.WMS.API.Models.PickingDetail", "PickingDetail")
-                        .WithMany()
-                        .HasForeignKey("PickingDetailId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("Syntera.WMS.API.Models.MasterSKU", "SKU")
-                        .WithMany()
-                        .HasForeignKey("SKUId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Header");
-
-                    b.Navigation("PickingDetail");
-
-                    b.Navigation("SKU");
-                });
-
             modelBuilder.Entity("Syntera.WMS.API.Models.InventoryAdjustment", b =>
                 {
                     b.HasOne("Syntera.WMS.API.Models.MasterSKU", "SKU")
@@ -813,11 +702,6 @@ namespace Syntera.WMS.API.Migrations
                         .IsRequired();
 
                     b.Navigation("Role");
-                });
-
-            modelBuilder.Entity("Syntera.WMS.API.Models.DispatchHeader", b =>
-                {
-                    b.Navigation("Details");
                 });
 
             modelBuilder.Entity("Syntera.WMS.API.Models.PickingHeader", b =>

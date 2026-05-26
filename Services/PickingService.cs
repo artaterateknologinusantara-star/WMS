@@ -8,57 +8,67 @@ namespace Syntera.WMS.API.Services
     {
         private readonly ApplicationDbContext _context = context;
 
+        // ──────────────────────────────────────────────────────────────
+        // GET — flat list of all picking details for the UI table
+        // ──────────────────────────────────────────────────────────────
         public async Task<List<PickingListItemDto>> GetPickingListAsync()
         {
             return await _context.PickingDetails
-                .Include(d => d.Header)
-                .Include(d => d.SKU)
-                .Include(d => d.InventoryStock)
-                    .ThenInclude(s => s!.Rack)
                 .OrderByDescending(d => d.CreatedAt)
                 .Select(d => new PickingListItemDto
                 {
-                    Id = d.Id,
-                    PickingId = d.Header!.PickingNumber,
-                    SKUNumber = d.SKU!.SKUCode ?? string.Empty,
-                    SKUName = d.SKU!.SKUName ?? string.Empty,
-                    RequestedQty = d.RequestedQty,
-                    RecommendedBin = d.InventoryStock != null && d.InventoryStock.Rack != null
-                        ? d.InventoryStock.Rack.BinCode ?? string.Empty
-                        : string.Empty,
-                    PalletId = d.InventoryStock != null ? d.InventoryStock.PalletId ?? string.Empty : string.Empty,
-                    PickedQty = d.PickedQty,
-                    Status = d.Status
+                    Id                = d.Id,
+                    PickingId         = d.Header!.PickingNumber,
+                    AssignedTo        = d.Header.AssignedTo,
+                    SKUNumber         = d.SKU!.SKUCode ?? string.Empty,
+                    SKUName           = d.SKU!.SKUName ?? string.Empty,
+                    RequestedQty      = d.RequestedQty,
+                    PickedQty         = d.PickedQty,
+                    RecommendedBin    = d.SuggestedRack != null ? d.SuggestedRack.BinCode ?? string.Empty : string.Empty,
+                    SuggestedPalletId = d.SuggestedPalletId ?? string.Empty,
+                    StagingLocation   = d.InventoryStock != null && d.InventoryStock.Rack != null && d.InventoryStock.Rack.Zone == "Outbound Staging"
+                                            ? d.InventoryStock.Rack.BinCode ?? string.Empty
+                                            : string.Empty,
+                    Status            = d.Status
                 })
                 .ToListAsync();
         }
 
+        // ──────────────────────────────────────────────────────────────
+        // CREATE — Picking List (planning only)
+        // User provides: SKUCode + RequestedQty + AssignedTo
+        // System auto-suggests rack & pallet via FIFO (AvailableQty first)
+        // ──────────────────────────────────────────────────────────────
         public async Task<PickingListItemDto> CreatePickingAsync(CreatePickingRequest request)
         {
             if (string.IsNullOrWhiteSpace(request.SKUCode))
                 throw new ArgumentException("SKU Code is required.");
-            if (string.IsNullOrWhiteSpace(request.PalletId))
-                throw new ArgumentException("Pallet ID is required.");
             if (request.RequestedQty <= 0)
                 throw new ArgumentException("Requested quantity must be greater than zero.");
             if (string.IsNullOrWhiteSpace(request.AssignedTo))
                 throw new ArgumentException("Assigned To is required.");
 
             var sku = await _context.MasterSKUs
-                .FirstOrDefaultAsync(s => s.SKUCode == request.SKUCode);
+                .FirstOrDefaultAsync(s => s.SKUCode == request.SKUCode.Trim());
             if (sku == null)
                 throw new InvalidOperationException($"SKU '{request.SKUCode}' not found.");
 
+            // FIFO: oldest Active stock first with sufficient AvailableQty
             var stock = await _context.InventoryStocks
                 .Include(s => s.Rack)
-                .FirstOrDefaultAsync(s => s.PalletId == request.PalletId && s.SKUId == sku.Id && s.Status == "Active");
+                .Where(s =>
+                    s.SKUId == sku.Id &&
+                    s.Status == "Active" &&
+                    s.AvailableQty >= request.RequestedQty)
+                .OrderBy(s => s.CreatedAt)
+                .FirstOrDefaultAsync();
+
             if (stock == null)
-                throw new InvalidOperationException($"Pallet '{request.PalletId}' does not contain SKU '{request.SKUCode}' or is not active.");
+                throw new InvalidOperationException(
+                    $"No available stock for SKU '{request.SKUCode}' with sufficient quantity. " +
+                    $"Requested: {request.RequestedQty}. Ensure stock has been put away.");
 
-            if (stock.AvailableQty < request.RequestedQty)
-                throw new InvalidOperationException($"Insufficient available quantity. Available: {stock.AvailableQty}, Requested: {request.RequestedQty}.");
-
-            // Auto-generate picking number: PCK-YYYY-NNN
+            // Auto-generate picking number PCK-YYYY-NNN
             var year = DateTime.UtcNow.Year;
             var count = await _context.PickingHeaders.CountAsync(h => h.CreatedAt.Year == year);
             var pickingNumber = $"PCK-{year}-{(count + 1):D3}";
@@ -69,44 +79,47 @@ namespace Syntera.WMS.API.Services
                 var header = new PickingHeader
                 {
                     PickingNumber = pickingNumber,
-                    AssignedTo = request.AssignedTo.Trim(),
-                    Status = "pending",
-                    CreatedAt = DateTime.UtcNow
+                    AssignedTo    = request.AssignedTo.Trim(),
+                    Status        = "pending",
+                    CreatedAt     = DateTime.UtcNow
                 };
                 _context.PickingHeaders.Add(header);
                 await _context.SaveChangesAsync();
 
                 var detail = new PickingDetail
                 {
-                    PickingHeaderId = header.Id,
-                    SKUId = sku.Id,
-                    InventoryStockId = stock.Id,
-                    RequestedQty = request.RequestedQty,
-                    PickedQty = 0,
-                    Status = "pending",
-                    CreatedAt = DateTime.UtcNow
+                    PickingHeaderId   = header.Id,
+                    SKUId             = sku.Id,
+                    InventoryStockId  = stock.Id,
+                    RequestedQty      = request.RequestedQty,
+                    PickedQty         = 0,
+                    SuggestedRackId   = stock.RackId,
+                    SuggestedPalletId = stock.PalletId,
+                    Status            = "pending",
+                    CreatedAt         = DateTime.UtcNow
                 };
                 _context.PickingDetails.Add(detail);
 
-                // Reserve qty in InventoryStock
-                stock.ReservedQty += request.RequestedQty;
+                // Reserve stock
+                stock.ReservedQty  += request.RequestedQty;
                 stock.AvailableQty -= request.RequestedQty;
-                stock.UpdatedAt = DateTime.UtcNow;
+                stock.UpdatedAt     = DateTime.UtcNow;
 
                 await _context.SaveChangesAsync();
                 await tx.CommitAsync();
 
                 return new PickingListItemDto
                 {
-                    Id = detail.Id,
-                    PickingId = header.PickingNumber,
-                    SKUNumber = sku.SKUCode ?? string.Empty,
-                    SKUName = sku.SKUName ?? string.Empty,
-                    RequestedQty = detail.RequestedQty,
-                    RecommendedBin = stock.Rack?.BinCode ?? string.Empty,
-                    PalletId = stock.PalletId ?? string.Empty,
-                    PickedQty = 0,
-                    Status = "pending"
+                    Id                = detail.Id,
+                    PickingId         = header.PickingNumber,
+                    AssignedTo        = header.AssignedTo,
+                    SKUNumber         = sku.SKUCode ?? string.Empty,
+                    SKUName           = sku.SKUName ?? string.Empty,
+                    RequestedQty      = detail.RequestedQty,
+                    PickedQty         = 0,
+                    RecommendedBin    = stock.Rack?.BinCode ?? string.Empty,
+                    SuggestedPalletId = stock.PalletId ?? string.Empty,
+                    Status            = "pending"
                 };
             }
             catch
@@ -116,21 +129,24 @@ namespace Syntera.WMS.API.Services
             }
         }
 
+        // ──────────────────────────────────────────────────────────────
+        // CONFIRM — Picking Process (physical execution)
+        // Validates scanned rack & pallet against stored suggestions.
+        // Moves inventory to Outbound Staging + creates StockMovement.
+        // ──────────────────────────────────────────────────────────────
         public async Task<PickingListItemDto> ConfirmPickAsync(int detailId, ConfirmPickRequest request)
         {
             var detail = await _context.PickingDetails
                 .Include(d => d.Header)
                 .Include(d => d.SKU)
+                .Include(d => d.SuggestedRack)
                 .Include(d => d.InventoryStock)
                     .ThenInclude(s => s!.Rack)
-                .FirstOrDefaultAsync(d => d.Id == detailId);
-
-            if (detail == null)
-                throw new InvalidOperationException($"Picking item {detailId} not found.");
+                .FirstOrDefaultAsync(d => d.Id == detailId)
+                ?? throw new InvalidOperationException($"Picking item {detailId} not found.");
 
             if (detail.Status == "picked")
                 throw new InvalidOperationException("This picking item has already been confirmed.");
-
             if (detail.Status == "error")
                 throw new InvalidOperationException("Cannot confirm a picking item in error state.");
 
@@ -139,80 +155,115 @@ namespace Syntera.WMS.API.Services
 
             var actualQty = request.PickedQty ?? detail.RequestedQty;
 
+            // ── Validate qty ──
             if (actualQty <= 0)
                 throw new ArgumentException("Picked quantity must be greater than zero.");
-
             if (actualQty > detail.RequestedQty)
-                throw new ArgumentException($"Picked quantity {actualQty} exceeds requested quantity {detail.RequestedQty}.");
-
+                throw new ArgumentException($"Picked quantity ({actualQty}) exceeds requested quantity ({detail.RequestedQty}).");
             if (actualQty > stock.Qty)
-                throw new InvalidOperationException($"Picked quantity {actualQty} exceeds available stock {stock.Qty}.");
+                throw new InvalidOperationException($"Picked quantity ({actualQty}) exceeds physical stock on pallet ({stock.Qty}).");
+
+            // ── Validate scanned rack against suggestion ──
+            if (!string.IsNullOrWhiteSpace(request.ScannedRackCode) && detail.SuggestedRack != null)
+            {
+                if (!string.Equals(request.ScannedRackCode.Trim(), detail.SuggestedRack.BinCode, StringComparison.OrdinalIgnoreCase))
+                    throw new ArgumentException(
+                        $"Wrong rack scanned: '{request.ScannedRackCode}'. " +
+                        $"Expected: '{detail.SuggestedRack.BinCode}'.");
+            }
+
+            // ── Validate scanned pallet against suggestion ──
+            if (!string.IsNullOrWhiteSpace(request.ScannedPalletId) && !string.IsNullOrWhiteSpace(detail.SuggestedPalletId))
+            {
+                if (!string.Equals(request.ScannedPalletId.Trim(), detail.SuggestedPalletId, StringComparison.OrdinalIgnoreCase))
+                    throw new ArgumentException(
+                        $"Wrong pallet scanned: '{request.ScannedPalletId}'. " +
+                        $"Expected: '{detail.SuggestedPalletId}'.");
+            }
+
+            // ── Resolve staging location ──
+            BinLocation stagingLocation;
+            if (!string.IsNullOrWhiteSpace(request.StagingLocationCode))
+            {
+                stagingLocation = await _context.BinLocations
+                    .FirstOrDefaultAsync(b => b.BinCode == request.StagingLocationCode.Trim() && b.IsActive == true)
+                    ?? throw new InvalidOperationException($"Staging location '{request.StagingLocationCode}' not found or inactive.");
+            }
+            else
+            {
+                // Auto-assign first available staging bin
+                stagingLocation = await _context.BinLocations
+                    .Where(b => b.Zone == "Outbound Staging" && b.IsActive == true)
+                    .OrderBy(b => b.BinCode)
+                    .FirstOrDefaultAsync()
+                    ?? throw new InvalidOperationException(
+                        "No staging location available. Create BinLocation records with Zone = 'Outbound Staging'.");
+            }
 
             await using var tx = await _context.Database.BeginTransactionAsync();
             try
             {
-                var qtyBefore = stock.Qty;
+                var sourceRackId = stock.RackId;
+                var qtyBefore    = stock.Qty;
 
-                // Deduct actual picked qty from stock
-                stock.Qty -= actualQty;
-                stock.ReservedQty = Math.Max(0, stock.ReservedQty - actualQty);
-                stock.AvailableQty = stock.Qty - stock.ReservedQty;
+                // ── Move inventory to Outbound Staging ──
+                stock.Qty             -= actualQty;
+                stock.ReservedQty      = Math.Max(0, stock.ReservedQty - actualQty);
+                stock.AvailableQty     = Math.Max(0, stock.Qty - stock.ReservedQty);
+                stock.RackId           = stagingLocation.Id;
+                stock.Status           = stock.Qty <= 0 ? "Empty" : "Outbound Staging";
                 stock.LastMovementDate = DateTime.UtcNow;
-                stock.UpdatedAt = DateTime.UtcNow;
-                if (stock.Qty <= 0)
-                {
-                    stock.Qty = 0;
-                    stock.AvailableQty = 0;
-                    stock.ReservedQty = 0;
-                    stock.Status = "Empty";
-                }
+                stock.UpdatedAt        = DateTime.UtcNow;
 
+                // ── StockMovement: RACK → OUTBOUND STAGING ──
                 _context.StockMovements.Add(new StockMovement
                 {
-                    SKUId = detail.SKUId,
-                    MovementType = "Picking",
-                    Qty = actualQty,
-                    ReferenceNo = detail.Header!.PickingNumber,
-                    QtyBefore = qtyBefore,
-                    QtyAfter = stock.Qty,
-                    FromRackId = stock.RackId,
-                    ToRackId = null,
-                    MovementRemarks = !string.IsNullOrWhiteSpace(request.Notes)
-                        ? $"Picking: {actualQty} units of {detail.SKU?.SKUCode} from pallet {stock.PalletId}. Notes: {request.Notes}"
-                        : $"Picking: {actualQty} units of {detail.SKU?.SKUCode} from pallet {stock.PalletId}",
+                    SKUId                 = detail.SKUId,
+                    MovementType          = "Picking",
+                    Qty                   = actualQty,
+                    ReferenceNo           = detail.Header!.PickingNumber,
+                    QtyBefore             = qtyBefore,
+                    QtyAfter              = stock.Qty,
+                    FromRackId            = sourceRackId,
+                    ToRackId              = stagingLocation.Id,
+                    MovementRemarks       = string.IsNullOrWhiteSpace(request.Notes)
+                        ? $"Picking: {actualQty} pcs {detail.SKU?.SKUCode} pallet {detail.SuggestedPalletId} → staging {stagingLocation.BinCode}"
+                        : $"Picking: {actualQty} pcs {detail.SKU?.SKUCode} pallet {detail.SuggestedPalletId} → staging {stagingLocation.BinCode}. Notes: {request.Notes}",
                     MovementReferenceType = "Picking",
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt             = DateTime.UtcNow
                 });
 
-                // Full pick or partial pick
-                detail.PickedQty = actualQty;
-                detail.Status = actualQty >= detail.RequestedQty ? "picked" : "in-progress";
-                detail.UpdatedAt = DateTime.UtcNow;
+                // ── Update detail status ──
+                detail.PickedQty  = actualQty;
+                detail.Status     = actualQty >= detail.RequestedQty ? "picked" : "in-progress";
+                detail.UpdatedAt  = DateTime.UtcNow;
 
-                // Update header: completed only if every detail is fully picked
+                // ── Update header status ──
                 var siblingStatuses = await _context.PickingDetails
                     .Where(d => d.PickingHeaderId == detail.PickingHeaderId && d.Id != detail.Id)
                     .Select(d => d.Status)
                     .ToListAsync();
 
                 var allPicked = detail.Status == "picked" && siblingStatuses.All(s => s == "picked");
-                detail.Header!.Status = allPicked ? "completed" : "in-progress";
-                detail.Header.UpdatedAt = DateTime.UtcNow;
+                detail.Header!.Status    = allPicked ? "completed" : "in-progress";
+                detail.Header.UpdatedAt  = DateTime.UtcNow;
 
                 await _context.SaveChangesAsync();
                 await tx.CommitAsync();
 
                 return new PickingListItemDto
                 {
-                    Id = detail.Id,
-                    PickingId = detail.Header.PickingNumber,
-                    SKUNumber = detail.SKU?.SKUCode ?? string.Empty,
-                    SKUName = detail.SKU?.SKUName ?? string.Empty,
-                    RequestedQty = detail.RequestedQty,
-                    RecommendedBin = stock.Rack?.BinCode ?? string.Empty,
-                    PalletId = stock.PalletId ?? string.Empty,
-                    PickedQty = detail.PickedQty,
-                    Status = detail.Status
+                    Id                = detail.Id,
+                    PickingId         = detail.Header.PickingNumber,
+                    AssignedTo        = detail.Header.AssignedTo,
+                    SKUNumber         = detail.SKU?.SKUCode ?? string.Empty,
+                    SKUName           = detail.SKU?.SKUName ?? string.Empty,
+                    RequestedQty      = detail.RequestedQty,
+                    PickedQty         = detail.PickedQty,
+                    RecommendedBin    = detail.SuggestedRack?.BinCode ?? string.Empty,
+                    SuggestedPalletId = detail.SuggestedPalletId ?? string.Empty,
+                    StagingLocation   = stagingLocation.BinCode,
+                    Status            = detail.Status
                 };
             }
             catch
@@ -223,32 +274,44 @@ namespace Syntera.WMS.API.Services
         }
     }
 
-    // ============ DTOs ============
+    // ══════════════════════════════════════════════════════════════════
+    // DTOs
+    // ══════════════════════════════════════════════════════════════════
 
     public class CreatePickingRequest
     {
-        public string SKUCode { get; set; } = string.Empty;
-        public string PalletId { get; set; } = string.Empty;
-        public int RequestedQty { get; set; }
-        public string AssignedTo { get; set; } = string.Empty;
+        public string SKUCode      { get; set; } = string.Empty;
+        public int    RequestedQty { get; set; }
+        public string AssignedTo   { get; set; } = string.Empty;
     }
 
     public class ConfirmPickRequest
     {
-        public int? PickedQty { get; set; }
-        public string? Notes { get; set; }
+        // Physical scan validation — compared against stored suggestions
+        public string? ScannedRackCode      { get; set; }
+        public string? ScannedPalletId      { get; set; }
+
+        // Actual picked quantity (defaults to RequestedQty if omitted)
+        public int?    PickedQty            { get; set; }
+
+        // Staging location (auto-assigned if omitted)
+        public string? StagingLocationCode  { get; set; }
+
+        public string? Notes                { get; set; }
     }
 
     public class PickingListItemDto
     {
-        public int Id { get; set; }
-        public string PickingId { get; set; } = string.Empty;
-        public string SKUNumber { get; set; } = string.Empty;
-        public string SKUName { get; set; } = string.Empty;
-        public int RequestedQty { get; set; }
-        public string RecommendedBin { get; set; } = string.Empty;
-        public string PalletId { get; set; } = string.Empty;
-        public int PickedQty { get; set; }
-        public string Status { get; set; } = string.Empty;
+        public int    Id                { get; set; }
+        public string PickingId         { get; set; } = string.Empty;
+        public string AssignedTo        { get; set; } = string.Empty;
+        public string SKUNumber         { get; set; } = string.Empty;
+        public string SKUName           { get; set; } = string.Empty;
+        public int    RequestedQty      { get; set; }
+        public int    PickedQty         { get; set; }
+        public string RecommendedBin    { get; set; } = string.Empty;
+        public string SuggestedPalletId { get; set; } = string.Empty;
+        public string StagingLocation   { get; set; } = string.Empty;
+        public string Status            { get; set; } = string.Empty;
     }
 }
