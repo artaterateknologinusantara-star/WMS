@@ -48,8 +48,11 @@ namespace Syntera.WMS.API.Services
         /// </summary>
         public async Task<ReceivingResult> SubmitReceivingAsync(ReceivingSubmitRequest request)
         {
-            var receivingNumber = $"RCV-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString().Substring(0, 6).ToUpper()}";
             var pallets = new List<PalletInfo>();
+
+            var year  = DateTime.UtcNow.Year;
+            var count = await _context.ReceivingHeaders.CountAsync(h => h.CreatedAt.Year == year);
+            var receivingNumber = $"RCV-{year}-{(count + 1):D3}";
 
             var header = new ReceivingHeader
             {

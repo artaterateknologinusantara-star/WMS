@@ -38,6 +38,17 @@ namespace Syntera.WMS.API.Services
             if (adjustment.ApprovalStatus != "Pending")
                 throw new InvalidOperationException($"Adjustment status is {adjustment.ApprovalStatus}, cannot approve");
 
+            // Guard: block if any pallet of this SKU has stock reserved by an active picking task
+            var totalReserved = await _context.InventoryStocks
+                .Where(s => s.SKUId == adjustment.SKUId && s.ReservedQty > 0)
+                .SumAsync(s => (int?)s.ReservedQty) ?? 0;
+
+            if (totalReserved > 0)
+                throw new InvalidOperationException(
+                    $"Cannot approve adjustment for SKU '{adjustment.SKU?.SKUCode}': " +
+                    $"{totalReserved} unit(s) are currently reserved in active picking tasks. " +
+                    $"Complete or cancel the related picking tasks before approving this adjustment.");
+
             await using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {

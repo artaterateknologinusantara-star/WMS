@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Syntera.WMS.API.Data;
@@ -9,6 +10,7 @@ namespace Syntera.WMS.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize(Policy = "AnyStaff")]
     public class InventoryController : ControllerBase
     {
         private readonly ApplicationDbContext _context;
@@ -67,6 +69,16 @@ namespace Syntera.WMS.API.Controllers
                 return NotFound(new { success = false, message = "SKU not found." });
 
             return Ok(new { success = true, data = inventory });
+        }
+
+        [HttpGet("by-code/{skuCode}/pallets")]
+        public async Task<IActionResult> GetPalletsByCode(string skuCode)
+        {
+            var stocks = await _inventoryService.GetStocksByCodeAsync(skuCode);
+            if (!stocks.Any())
+                return NotFound(new { success = false, message = "No active stock found for this SKU." });
+
+            return Ok(new { success = true, data = stocks });
         }
 
         [HttpGet("uom")]

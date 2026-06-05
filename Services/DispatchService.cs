@@ -279,6 +279,67 @@ namespace Syntera.WMS.API.Services
                 throw;
             }
         }
+
+        // ──────────────────────────────────────────────────────────────
+        // CANCEL — only allowed while DispatchHeader.Status = "pending".
+        // Sets header + all details to "cancelled".
+        // InventoryStock is NOT touched — goods remain in Outbound Staging
+        // and can be assigned to a new dispatch.
+        // ──────────────────────────────────────────────────────────────
+        public async Task<DispatchListDto> CancelDispatchAsync(int headerId)
+        {
+            var header = await _context.DispatchHeaders
+                .Include(h => h.Details)
+                    .ThenInclude(d => d.SKU)
+                .FirstOrDefaultAsync(h => h.Id == headerId)
+                ?? throw new InvalidOperationException($"Dispatch {headerId} not found.");
+
+            if (header.Status != "pending")
+                throw new InvalidOperationException(
+                    $"Cannot cancel {header.DispatchNumber}: only 'pending' dispatches can be cancelled (current status: '{header.Status}').");
+
+            await using var tx = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                foreach (var detail in header.Details)
+                {
+                    detail.Status    = "cancelled";
+                    detail.UpdatedAt = DateTime.UtcNow;
+                }
+
+                header.Status    = "cancelled";
+                header.UpdatedAt = DateTime.UtcNow;
+
+                await _context.SaveChangesAsync();
+                await tx.CommitAsync();
+
+                return new DispatchListDto
+                {
+                    Id             = header.Id,
+                    DispatchNumber = header.DispatchNumber,
+                    DriverName     = header.DriverName,
+                    VehicleNumber  = header.VehicleNumber,
+                    Status         = header.Status,
+                    Notes          = header.Notes ?? string.Empty,
+                    CreatedAt      = header.CreatedAt.ToString("yyyy-MM-dd HH:mm"),
+                    Items          = header.Details.Select(d => new DispatchItemDto
+                    {
+                        Id             = d.Id,
+                        SKUCode        = d.SKU?.SKUCode ?? string.Empty,
+                        SKUName        = d.SKU?.SKUName ?? string.Empty,
+                        Qty            = d.Qty,
+                        StagingBinCode = d.StagingBinCode,
+                        PalletId       = d.PalletId,
+                        Status         = d.Status,
+                    }).ToList()
+                };
+            }
+            catch
+            {
+                await tx.RollbackAsync();
+                throw;
+            }
+        }
     }
 
     // ══════════════════════════════════════════════════════════════════

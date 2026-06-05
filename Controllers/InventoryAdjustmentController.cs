@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Syntera.WMS.API.Data;
@@ -8,6 +9,7 @@ namespace Syntera.WMS.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize(Policy = "InventoryAccess")]
     public class InventoryAdjustmentController(
         ApplicationDbContext context,
         AdjustmentApprovalService approvalService) : ControllerBase
@@ -135,6 +137,7 @@ namespace Syntera.WMS.API.Controllers
         // POST  /api/inventoryadjustment/{id}/approve
         // Updates InventoryStock + creates StockMovement audit record.
         // ----------------------------------------------------------------
+        [Authorize(Policy = "ManagerOnly")]
         [HttpPost("{id}/approve")]
         public async Task<IActionResult> ApproveAdjustment(int id, [FromBody] ApproveRequest request)
         {
@@ -160,6 +163,7 @@ namespace Syntera.WMS.API.Controllers
         // POST  /api/inventoryadjustment/{id}/reject
         // Status-only update; stock is NOT modified.
         // ----------------------------------------------------------------
+        [Authorize(Policy = "ManagerOnly")]
         [HttpPost("{id}/reject")]
         public async Task<IActionResult> RejectAdjustment(int id, [FromBody] RejectRequest request)
         {

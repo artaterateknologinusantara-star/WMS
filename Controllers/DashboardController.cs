@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Syntera.WMS.API.Data;
@@ -6,6 +7,7 @@ namespace Syntera.WMS.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize(Policy = "AnyStaff")]
     public class DashboardController(ApplicationDbContext context) : ControllerBase
     {
         private readonly ApplicationDbContext _context = context;

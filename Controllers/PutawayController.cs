@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Syntera.WMS.API.Services;
 
@@ -5,6 +6,7 @@ namespace Syntera.WMS.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize(Policy = "InboundAccess")]
     public class PutawayController(PutawayService putawayService) : ControllerBase
     {
         private readonly PutawayService _putawayService = putawayService;

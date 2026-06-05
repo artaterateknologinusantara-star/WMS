@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
+using System.Security.Claims;
 using System.Text;
 using Syntera.WMS.API.Data;
 using Syntera.WMS.API.Services;
@@ -30,11 +31,25 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateIssuerSigningKey = true,
             ValidIssuer = builder.Configuration["Jwt:Issuer"],
             ValidAudience = builder.Configuration["Jwt:Audience"],
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
+            RoleClaimType = ClaimTypes.Role,
+            NameClaimType = ClaimTypes.Name,
         };
     });
 
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    // SuperAdmin + WarehouseManager only (approvals, master data writes)
+    options.AddPolicy("ManagerOnly",     p => p.RequireRole("SuperAdmin", "WarehouseManager"));
+    // Inbound module: receiving + putaway
+    options.AddPolicy("InboundAccess",   p => p.RequireRole("SuperAdmin", "WarehouseManager", "InboundStaff"));
+    // Outbound module: picking + dispatch
+    options.AddPolicy("OutboundAccess",  p => p.RequireRole("SuperAdmin", "WarehouseManager", "OutboundStaff"));
+    // Inventory module: stock view + adjustment submission
+    options.AddPolicy("InventoryAccess", p => p.RequireRole("SuperAdmin", "WarehouseManager", "InventoryStaff"));
+    // Read-only / shared data accessible to any authenticated role
+    options.AddPolicy("AnyStaff",        p => p.RequireRole("SuperAdmin", "WarehouseManager", "InventoryStaff", "InboundStaff", "OutboundStaff"));
+});
 
 builder.Services.AddScoped<InventoryService>();
 builder.Services.AddScoped<ReceivingService>();

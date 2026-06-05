@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Syntera.WMS.API.Services;
 
@@ -5,6 +6,7 @@ namespace Syntera.WMS.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize(Policy = "OutboundAccess")]
     public class DispatchController(DispatchService dispatchService) : ControllerBase
     {
         private readonly DispatchService _dispatchService = dispatchService;
@@ -51,6 +53,25 @@ namespace Syntera.WMS.API.Controllers
             catch (ArgumentException ex)
             {
                 return BadRequest(new { success = false, message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { success = false, message = ex.Message });
+            }
+        }
+
+        // POST /api/dispatch/{id}/cancel
+        [HttpPost("{id}/cancel")]
+        public async Task<IActionResult> CancelDispatch(int id)
+        {
+            try
+            {
+                var result = await _dispatchService.CancelDispatchAsync(id);
+                return Ok(new { success = true, data = result });
             }
             catch (InvalidOperationException ex)
             {

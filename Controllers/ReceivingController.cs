@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Syntera.WMS.API.Data;
 using Syntera.WMS.API.Services;
@@ -6,6 +7,7 @@ namespace Syntera.WMS.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize(Policy = "InboundAccess")]
     public class ReceivingController : ControllerBase
     {
         private readonly ReceivingService _receivingService;

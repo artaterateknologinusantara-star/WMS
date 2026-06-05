@@ -85,5 +85,37 @@ namespace Syntera.WMS.API.Services
             }).ToList();
         }
 
+        public async Task<List<InventoryLookupDto>> GetStocksByCodeAsync(string skuCode)
+        {
+            if (string.IsNullOrWhiteSpace(skuCode))
+                return [];
+
+            var normalizedCode = skuCode.Trim();
+
+            var stocks = await _context.InventoryStocks
+                .Include(x => x.SKU)
+                    .ThenInclude(s => s!.UOM)
+                .Include(x => x.Rack)
+                .Where(x => x.SKU != null && x.SKU.SKUCode == normalizedCode && x.Status == "Active" && x.Qty > 0)
+                .OrderByDescending(x => x.LastMovementDate)
+                .ToListAsync();
+
+            return stocks.Select(x => new InventoryLookupDto
+            {
+                StockId = x.Id,
+                SKUId = x.SKUId,
+                SKUCode = x.SKU?.SKUCode ?? string.Empty,
+                SKUName = x.SKU?.SKUName ?? string.Empty,
+                Qty = x.Qty,
+                BinLocation = x.Rack?.BinCode ?? string.Empty,
+                PalletId = x.PalletId ?? string.Empty,
+                UOM = x.SKU?.UOM?.UOMName ?? string.Empty,
+                Status = x.Status ?? "Active",
+                LastMovementDate = x.LastMovementDate.HasValue
+                    ? x.LastMovementDate.Value.ToString("yyyy-MM-dd HH:mm")
+                    : string.Empty
+            }).ToList();
+        }
+
     }
 }

@@ -48,10 +48,17 @@ namespace Syntera.WMS.API.Services
 
             // Guard: pallet already put away
             var alreadyExists = await _context.InventoryStocks
-                .AnyAsync(x => x.SKUId == receivingDetail.SKUId && x.PalletId == request.PalletId);
+                .AnyAsync(x => x.PalletId == request.PalletId);
 
             if (alreadyExists)
                 throw new InvalidOperationException($"Pallet {request.PalletId} has already been put away.");
+
+            // Guard: bin already occupied by another pallet
+            var binOccupied = await _context.InventoryStocks
+                .AnyAsync(x => x.RackId == binLocation.Id && x.Status == "Active");
+
+            if (binOccupied)
+                throw new InvalidOperationException($"Bin '{request.BinCode}' already has an active pallet. Each bin can only hold one pallet at a time.");
 
             await using var transaction = await _context.Database.BeginTransactionAsync();
             try
@@ -89,19 +96,17 @@ namespace Syntera.WMS.API.Services
                     CreatedAt = DateTime.UtcNow
                 });
 
-                // Update ReceivingHeader status when all pallets have been put away
-                var allPalletIds = await _context.ReceivingDetails
-                    .Where(d => d.ReceivingHeaderId == receivingDetail.ReceivingHeaderId)
-                    .Select(d => d.PalletId)
-                    .ToListAsync();
+                // Flip ReceivingHeader → "Putaway" once every detail has a matching InventoryStock.
+                // Single correlated query avoids materialising the pallet-ID list.
+                var stillPending = await _context.ReceivingDetails
+                    .Where(d => d.ReceivingHeaderId == receivingDetail.ReceivingHeaderId &&
+                                !_context.InventoryStocks.Any(s => s.PalletId == d.PalletId))
+                    .AnyAsync();
 
-                var putAwayCount = await _context.InventoryStocks
-                    .CountAsync(s => allPalletIds.Contains(s.PalletId));
-
-                if (putAwayCount >= allPalletIds.Count)
+                if (!stillPending)
                 {
                     var header = await _context.ReceivingHeaders.FindAsync(receivingDetail.ReceivingHeaderId);
-                    if (header != null)
+                    if (header != null && header.Status != "Putaway")
                         header.Status = "Putaway";
                 }
 
