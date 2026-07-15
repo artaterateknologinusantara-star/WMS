@@ -29,6 +29,7 @@ Cakupan sistem saat ini: **Receiving → Putaway → Inventory → Adjustment �
 - [x] **Putaway** — konfirmasi pallet ke bin, satu-satunya pembuat `InventoryStock`, guard 1 pallet/bin
 - [x] **Inventory (view)** — agregasi stok, lookup by SKU code, daftar pallet per SKU, daftar UOM
 - [x] **Inventory Adjustment** — submit (Pending), approve/reject (ManagerOnly), audit `StockMovement`
+  - ⚠️ **Guard tersembunyi (belum pernah didokumentasikan sebelumnya):** approve akan **ditolak otomatis** jika SKU yang diajukan sedang punya stok yang direservasi oleh task picking aktif (`ReservedQty > 0` di pallet manapun untuk SKU itu). Dalam bahasa awam: kalau ada operator yang sedang dalam proses mengambil (pick) barang dari SKU yang sama saat manager mencoba approve adjustment, sistem akan menolak dengan pesan "X unit(s) are currently reserved in active picking tasks" — manager harus menunggu picking-nya selesai atau dibatalkan dulu. Ini mencegah adjustment mengubah qty stok yang sedang "dalam perjalanan" ke staging, yang bisa membuat data reservasi jadi tidak konsisten. Terverifikasi di `AdjustmentApprovalService.cs:42-50`.
 - [x] **Picking (planning)** — FIFO reservation, split otomatis lintas pallet, nomor `PCK-YYYY-NNN`
 - [x] **Picking (eksekusi fisik)** — scan validasi rak+pallet, staging otomatis, partial pick, idempotent recovery
 - [x] **Picking cancel & force-complete** — release reservasi + audit, penutupan header terminal
@@ -75,6 +76,9 @@ Cakupan sistem saat ini: **Receiving → Putaway → Inventory → Adjustment �
 | Pagination | `GET /api/inventory`, `/api/mastersku`, `/api/binlocation` semua mengembalikan seluruh dataset tanpa paging — berisiko saat data bertambah besar. |
 | Soft-delete MasterSKU | Sudah ada "deactivate" (status Inactive), belum ada mekanisme hapus permanen/arsip. |
 | Health-check endpoint | Belum ada `/health` atau endpoint monitoring uptime. |
+| Frontend cancel picking task | Backend `POST /api/picking/{id}/cancel` sudah ada, tapi `picking.service.ts` belum punya fungsi cancel — dicek ulang 2026-07-15, masih belum ada. |
+| Frontend cancel dispatch | Backend `POST /api/dispatch/{id}/cancel` sudah ada, tapi `dispatch.service.ts` belum punya fungsi cancel — dicek ulang 2026-07-15, masih belum ada. |
+| Role-based UI access control (frontend) | Backend policy RBAC sudah ditegakkan penuh, tapi `Sidebar.tsx` menampilkan semua menu ke semua role tanpa filter — dicek ulang 2026-07-15, `user?.role` hanya ditampilkan sebagai teks, tidak dipakai untuk menyembunyikan menu. |
 
 ---
 

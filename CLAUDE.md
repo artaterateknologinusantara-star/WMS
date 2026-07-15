@@ -49,8 +49,8 @@ Migrations/      → EF migrations
 | Controller | Base Route | Auth Policy | Key Endpoints |
 |-----------|-----------|-------------|--------------|
 | AuthController | `/api/auth` | Public | POST /login |
-| InventoryController | `/api/inventory` | InventoryAccess | GET list, GET /by-code/{skuCode}, GET /by-code/{skuCode}/pallets, GET /uom |
-| InventoryAdjustmentController | `/api/adjustment` | InventoryAccess | GET, POST, POST /{id}/approve (ManagerOnly), POST /{id}/reject (ManagerOnly) |
+| InventoryController | `/api/inventory` | AnyStaff | GET list, GET /by-code/{skuCode}, GET /by-code/{skuCode}/pallets, GET /uom |
+| InventoryAdjustmentController | `/api/InventoryAdjustment` | InventoryAccess | GET, POST, POST /{id}/approve (ManagerOnly), POST /{id}/reject (ManagerOnly) |
 | PutawayController | `/api/putaway` | InboundAccess | POST /confirm, GET /pending, GET /stock/{palletId} |
 | ReceivingController | `/api/receiving` | InboundAccess | GET history, POST submit |
 | BinLocationController | `/api/binlocation` | AnyStaff | GET (with isOccupied), POST create (ManagerOnly), PATCH /{id}/toggle-active (ManagerOnly) |
@@ -58,6 +58,114 @@ Migrations/      → EF migrations
 | PickingController | `/api/picking` | OutboundAccess | GET list, POST create, POST /{id}/confirm, POST /{id}/cancel, POST /{headerId}/force-complete, GET /check-stock, GET /staging-locations |
 | DispatchController | `/api/dispatch` | OutboundAccess | GET list, GET /staging-items, POST create, POST /{id}/confirm, POST /{id}/cancel |
 | DashboardController | `/api/dashboard` | AnyStaff | GET /summary, GET /activity |
+
+---
+
+## Controller Endpoint Details
+
+Per-endpoint description for every controller (expands the compact table above).
+
+### AuthController `/api/auth` — Public
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | /login | Validate credentials, return JWT |
+
+### InventoryController `/api/inventory` — AnyStaff
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | / | All InventoryStock records |
+| GET | /by-code/{skuCode} | Aggregated stock for one SKU |
+| GET | /by-code/{skuCode}/pallets | Individual pallet records per SKU |
+| GET | /uom | List of UOM |
+
+### InventoryAdjustmentController `/api/InventoryAdjustment` — InventoryAccess / ManagerOnly
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | / | InventoryAccess | All adjustments |
+| POST | / | InventoryAccess | Submit new adjustment request |
+| POST | /{id}/approve | ManagerOnly | Approve + apply stock change (blocked if SKU has `ReservedQty > 0` in an active picking task — see Business Rules) |
+| POST | /{id}/reject | ManagerOnly | Reject (status-only) |
+
+### PutawayController `/api/putaway` — InboundAccess
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /pending | Pallets not yet put away |
+| GET | /stock/{palletId} | Stock position for a pallet |
+| POST | /confirm | Confirm pallet → bin (creates InventoryStock) |
+
+### ReceivingController `/api/receiving` — InboundAccess
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | / | Receiving history |
+| POST | / | Submit inbound receiving |
+
+### BinLocationController `/api/binlocation` — AnyStaff / ManagerOnly
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | / | AnyStaff | All bins with `isOccupied` flag (all, including inactive) |
+| POST | / | ManagerOnly | Create new bin location |
+| PATCH | /{id}/toggle-active | ManagerOnly | Toggle IsActive (blocks if occupied) |
+
+### MasterSKUController `/api/mastersku` — AnyStaff / ManagerOnly
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | / | AnyStaff | All SKUs (with category, UOM, isActive, qty) |
+| GET | /categories | AnyStaff | All categories |
+| POST | / | ManagerOnly | Create new SKU |
+| PUT | /{id} | ManagerOnly | Update SKU (code, name, category, UOM) |
+| PATCH | /{id}/deactivate | ManagerOnly | Deactivate SKU (Status → "Inactive") |
+
+### PickingController `/api/picking` — OutboundAccess
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | / | All picking details (flat list for UI table) |
+| GET | /check-stock | Live stock check + FIFO suggestion for SKU |
+| GET | /staging-locations | Active Outbound Staging bins |
+| POST | / | Create picking task (planning; FIFO auto-suggest, reserves stock) |
+| POST | /{id}/confirm | Confirm physical pick (validate scan rack/pallet, move to staging) |
+| POST | /{id}/cancel | Cancel picking detail (release reservation, StockMovement "Cancellation") |
+| POST | /{headerId}/force-complete | Force-close terminal header (all details picked or cancelled) |
+
+### DispatchController `/api/dispatch` — OutboundAccess
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | / | All dispatch records with nested details |
+| GET | /staging-items | Staged items ready for dispatch (not yet in active dispatch) |
+| POST | / | Create dispatch (select staged items + driver/vehicle) |
+| POST | /{id}/confirm | Confirm dispatch → InventoryStock = Dispatched, BAST data returned |
+| POST | /{id}/cancel | Cancel pending dispatch (header + details → "cancelled"; stock stays in staging) |
+
+### DashboardController `/api/dashboard` — AnyStaff
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /summary | KPIs: inbound, inventory, outbound, adjustments + stockByZone |
+| GET | /activity | Last 15 StockMovements (activity feed) |
+
+---
+
+## Service Method Reference
+
+Per-method breakdown for the two most complex services (Picking and Dispatch). See the Services (8) table above for the other six.
+
+### PickingService — Methods
+| Method | Description |
+|--------|-------------|
+| `GetPickingListAsync()` | Flat list of all PickingDetails |
+| `CreatePickingAsync(req)` | FIFO reservation → PickingHeader + PickingDetail(s) |
+| `ConfirmPickAsync(detailId, req)` | Validate scan → move stock to staging → StockMovement "Picking". Includes idempotent recovery if stock already in Outbound Staging. |
+| `CancelPickAsync(detailId)` | Release reservation → StockMovement "Cancellation" → status "cancelled" |
+| `ForceCompleteAsync(headerId)` | Mark header "completed" when all details are terminal (picked or cancelled) |
+
+**DTO:** `PickingHeaderDto` — Id, PickingNumber, AssignedTo, Status, DetailCount, PickedCount, CancelledCount
+
+### DispatchService — Methods
+| Method | Description |
+|--------|-------------|
+| `GetDispatchListAsync()` | Dispatch history with nested DispatchDetails |
+| `GetStagingItemsAsync()` | Items in Outbound Staging not yet in active dispatch |
+| `CreateDispatchAsync(req)` | Validate staged items → DispatchHeader + DispatchDetail(s) |
+| `ConfirmDispatchAsync(headerId, req)` | Finalize: InventoryStock → Dispatched, Qty = 0, StockMovement "Dispatch" |
+| `CancelDispatchAsync(headerId)` | Cancel pending dispatch → header + details "cancelled". Stock NOT touched. |
 
 ---
 
@@ -86,10 +194,11 @@ MasterSKU        → Category, UOM (FKs)
 Category
 UOM
 BinLocation      (Zone, Rack, BinCode, Capacity, IsActive)
-                 ↳ Zone = "Outbound Staging" for staging bins (STG-A01, LOADING-01, etc.)
+                 ↳ Zone = "Outbound Staging" for staging bins (STG-A01, STG-A02, STG-B01, STG-B02)
+                 ↳ Zone = "Inbound Staging" for receiving-dock bins (LOADING-01, LOADING-02) — NOT outbound staging
 InventoryStock   → MasterSKU (SKUId), BinLocation (RackId)
                  ↳ PalletId, Qty, ReservedQty, AvailableQty, Status, LastMovementDate
-                 ↳ Status lifecycle: "Active" → "Outbound Staging" → "Dispatched" / "Empty"
+                 ↳ Status lifecycle: "Active" → "Outbound Staging" → "Dispatched" ("Empty" is never produced by current code — see InventoryStock Status Lifecycle section below)
 ReceivingHeader  (ReceivingNumber, SupplierName, DriverName, PO, Status)
                  ↳ Status: "Draft" → "Putaway" (when all pallets put away)
 ReceivingDetail  → ReceivingHeader, MasterSKU, UOM (auto-generated PalletId)
@@ -138,7 +247,7 @@ Picking Process (Physical Execution)  — POST /api/picking/{id}/confirm
        ReservedQty = max(0, ReservedQty - actualQty)
        AvailableQty = max(0, Qty - ReservedQty)
        RackId = stagingLocation.Id
-       Status = Qty <= 0 ? "Empty" : "Outbound Staging"
+       Status = "Outbound Staging"   ← always, regardless of remaining Qty (verified PickingService.cs:277)
   └─ StockMovement inserted: MovementType="Picking", From=sourceRack, To=stagingLocation
   └─ PickingDetail.Status: "picked" (full) | "in-progress" (partial)
   └─ PickingHeader.Status: "completed" (all details picked) | "in-progress"
@@ -176,8 +285,10 @@ Dispatch Confirm  — POST /api/dispatch/{id}/confirm
 | `ManagerOnly` | SuperAdmin, WarehouseManager | Adjustment approve/reject, MasterSKU write, BinLocation write |
 | `InboundAccess` | SuperAdmin, WarehouseManager, InboundStaff | Receiving, Putaway |
 | `OutboundAccess` | SuperAdmin, WarehouseManager, OutboundStaff | Picking, Dispatch |
-| `InventoryAccess` | SuperAdmin, WarehouseManager, InventoryStaff | Inventory, Adjustment submit |
-| `AnyStaff` | All roles | BinLocation read, MasterSKU read, Dashboard |
+| `InventoryAccess` | SuperAdmin, WarehouseManager, InventoryStaff | Adjustment submit/view (approve/reject is `ManagerOnly`) |
+| `AnyStaff` | All roles | BinLocation read, MasterSKU read, Dashboard, **Inventory (view)** |
+
+> **Verified 2026-07-15:** `InventoryController` uses `AnyStaff` (`InventoryController.cs:13`), not `InventoryAccess` as earlier drafts of this table claimed — any authenticated staff role (including InboundStaff/OutboundStaff) can read stock data, not just InventoryStaff/Manager/SuperAdmin.
 
 ---
 
@@ -201,11 +312,11 @@ Dispatch Confirm  — POST /api/dispatch/{id}/confirm
 
 ### Outbound — Picking Process (Physical Execution)
 13. **Four mandatory validations before confirming:** scanned rack matches suggested rack, scanned pallet matches suggested pallet, PickedQty > 0, PickedQty ≤ RequestedQty and ≤ stock.Qty.
-14. **Staging location auto-assigned** if not specified: first `BinLocation` with `Zone = "Outbound Staging"` ordered by `BinCode`.
+14. **Staging location auto-assigned** if not specified: first `BinLocation` with `Zone = "Outbound Staging"` ordered by `BinCode`. If no active bin with that Zone exists at all, `ConfirmPickAsync` throws `InvalidOperationException` ("No staging location available...").
 15. **Partial pick keeps status `in-progress`** — Only `PickedQty >= RequestedQty` sets status to `"picked"`.
 
 ### Outbound — Staging
-16. **Staging locations are `BinLocation` records with `Zone = "Outbound Staging"`** — Examples: `STG-A01`, `STG-B02`, `LOADING-01`. Do NOT create a separate staging table.
+16. **Staging locations are `BinLocation` records with `Zone = "Outbound Staging"`** — Examples: `STG-A01`, `STG-A02`, `STG-B01`, `STG-B02`. Do NOT create a separate staging table. **Note:** `LOADING-01`/`LOADING-02` are seeded with `Zone = "Inbound Staging"` (receiving dock), not `"Outbound Staging"` — do not use them as outbound staging examples (verified `DbSeeder.cs` — earlier drafts of this doc incorrectly listed `LOADING-01` here).
 17. **`GET /api/dispatch/staging-items`** returns only PickingDetails with `Status = "picked"`, InventoryStock `Status = "Outbound Staging"`, not yet assigned to a non-cancelled dispatch.
 
 ### Outbound — Dispatch
@@ -215,7 +326,7 @@ Dispatch Confirm  — POST /api/dispatch/{id}/confirm
 21. **BAST (Berita Acara Serah Terima)** — dispatch confirmation returns the full dispatch record; the frontend renders the handover document. Not stored as a separate DB entity.
 
 ### Outbound — Cancellation
-23. **Picking task cancellation** releases the reservation: `ReservedQty -= releaseQty`, `AvailableQty += releaseQty`. Inserts StockMovement `MovementType = "Cancellation"`. Blocked if status is already `"picked"` or `"cancelled"`.
+23. **Picking task cancellation** releases the reservation: `ReservedQty = max(0, ReservedQty - releaseQty)`, `AvailableQty += releaseQty`, where `releaseQty = RequestedQty - PickedQty` (only the unpicked portion — a partially-picked detail releases just the remainder). Inserts StockMovement `MovementType = "Cancellation"`. Blocked if status is already `"picked"` or `"cancelled"`.
 24. **Dispatch cancellation** is only allowed while `DispatchHeader.Status = "pending"`. Sets header + all details to `"cancelled"`. InventoryStock is NOT touched — goods remain in Outbound Staging and can be re-assigned to a new dispatch.
 25. **Force-complete** (`POST /api/picking/{headerId}/force-complete`) closes a PickingHeader whose details are all terminal (`"picked"` or `"cancelled"`). Throws if any detail is still `"pending"` or `"in-progress"`.
 
@@ -238,8 +349,10 @@ Dispatch Confirm  — POST /api/dispatch/{id}/confirm
 | Putaway | null | binLocation.Id | PutawayService.ConfirmPutawayAsync |
 | Picking | sourceRack.Id | stagingBin.Id | PickingService.ConfirmPickAsync |
 | Dispatch | stagingBin.Id | null | DispatchService.ConfirmDispatchAsync |
-| Adjustment | null | null | AdjustmentApprovalService.ApproveAdjustmentAsync |
+| Adjustment | stock.RackId* | stock.RackId* | AdjustmentApprovalService.ApproveAdjustmentAsync |
 | Cancellation | stock.RackId | null | PickingService.CancelPickAsync (releases reservation) |
+
+\* **Adjustment nuance (verified `AdjustmentApprovalService.cs:76-100`):** if a matching `InventoryStock` with `Status = "Active"` exists for the SKU (matched by PalletId if the adjustment specifies one, otherwise the oldest Active pallet), `FromRackId` and `ToRackId` are both set to that stock's `RackId` — **not null**. `FromRackId`/`ToRackId` are only `null` in the fallback path, when no Active `InventoryStock` exists at all for the SKU and the adjustment instead mutates `MasterSKU.Qty` directly.
 
 ---
 
@@ -253,7 +366,11 @@ Dispatch Confirm  — POST /api/dispatch/{id}/confirm
 "Outbound Staging"    ← in staging area; awaiting dispatch
      ↓  ConfirmDispatchAsync
   "Dispatched"        ← Qty=0; officially out of warehouse
-  (or "Empty" if partial pick zeroed the pallet)
+
+Note: an "Empty" status is not produced anywhere in the current codebase — grep across all
+.cs files confirms it. Confirm-pick always sets "Outbound Staging" (even when the pallet is
+fully drained) and dispatch-confirm always sets "Dispatched". Treat "Empty" as a legacy/aspirational
+value that never shipped, not a live status.
 
 Cancellation path (picking cancelled before physical pick):
   "Active" ← ReservedQty released back; stock never left the rack

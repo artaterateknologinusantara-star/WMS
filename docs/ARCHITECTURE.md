@@ -117,6 +117,15 @@ WMS-Frontend/
 
 Setiap halaman fitur mengikuti pola: `page.tsx` (server wrapper, `<AppLayout>`) + `components/<Nama>Content.tsx` (client component, `'use client'`, berisi seluruh state & logic).
 
+### Migration History (backend)
+
+| Migration | Tanggal | Deskripsi |
+|-----------|---------|-----------|
+| `20260518145051_InitialCreate` | 2026-05-18 | Skema awal penuh (15 entities) |
+| `20260522131712_AddPickingModule` | 2026-05-22 | Membuat tabel `PickingHeader` dan `PickingDetail` (planning + eksekusi picking outbound) |
+| `20260525064828_AddPickingDetailSuggestions` | 2026-05-25 | Menambah kolom `SuggestedPalletId` (string) dan `SuggestedRackId` (int, FK → BinLocation) ke `PickingDetail`, untuk menyimpan hasil suggestion FIFO |
+| `20260525124542_AddDispatchTables` | 2026-05-25 | Membuat tabel `DispatchHeader` dan `DispatchDetail` (planning + confirm dispatch outbound) |
+
 ---
 
 ## 4. Pola Desain / Arsitektur
@@ -125,9 +134,13 @@ Setiap halaman fitur mengikuti pola: `page.tsx` (server wrapper, `<AppLayout>`) 
 - **Inline DTO pattern** — DTO request/response didefinisikan di bagian bawah file service yang memilikinya, **bukan** di folder `DTOs/` terpisah. Ini konsisten di 6 dari 8 service.
 - **Transactional consistency** — setiap mutasi multi-langkah wajib `BeginTransactionAsync()` eksplisit + `StockMovement` sebagai audit trail. **Pengecualian:** `MasterSKUController` dan `BinLocationController` melakukan mutasi langsung lewat `SaveChangesAsync()` tanpa transaksi eksplisit (karena mutasinya single-statement, risikonya rendah, tapi tetap menyimpang dari pola yang didokumentasikan).
 - **State machine eksplisit** untuk entity kunci:
-  - `InventoryStock.Status`: `Active → Outbound Staging → Dispatched | Empty`
+  - `InventoryStock.Status`: `Active → Outbound Staging → Dispatched` (nilai `"Empty"` yang pernah direncanakan **tidak pernah dipakai** oleh kode saat ini — grep menyeluruh ke seluruh `.cs` tidak menemukan literal itu; `ConfirmPickAsync` selalu set `"Outbound Staging"` walau pallet habis terpakai, `ConfirmDispatchAsync` selalu set `"Dispatched"`)
   - `PickingDetail.Status`: `pending → in-progress → picked | cancelled | error`
+  - `PickingHeader.Status`: `pending → in-progress → completed | cancelled`
   - `DispatchHeader.Status`: `pending → dispatched | cancelled`
+  - `DispatchDetail.Status`: `pending → dispatched | cancelled`
+- **StockMovement sebagai audit trail wajib** — setiap mutasi stok (Putaway, Picking, Dispatch, Adjustment, Cancellation) menyisipkan satu baris `StockMovement`. Untuk tipe `"Adjustment"` (`AdjustmentApprovalService.cs:76-100`), field `FromRackId`/`ToRackId` **tidak selalu `null`**: bila ada `InventoryStock` berstatus `"Active"` untuk SKU tersebut, keduanya diisi `RackId` stock itu (menunjukkan lokasi rak tempat penyesuaian terjadi); baru `null`/`null` pada jalur fallback ketika SKU sama sekali tidak punya stok Active (adjustment lalu mengubah `MasterSKU.Qty` langsung, bukan `InventoryStock`).
+- **Guard tersembunyi pada approval adjustment** — `AdjustmentApprovalService.ApproveAdjustmentAsync` menolak approve (`InvalidOperationException`) jika ada unit dari SKU yang sama sedang `ReservedQty > 0` (direservasi oleh picking task aktif). Ini mencegah adjustment mengubah qty stok yang sedang dalam proses pengambilan, yang bisa membuat reservasi picking jadi tidak sinkron dengan stok fisik.
 - **RBAC berbasis policy bernama** (bukan role-check manual di tiap endpoint) — 5 policy didefinisikan sekali di `Program.cs`, dipakai via atribut `[Authorize(Policy = "...")]` di controller/action level.
 - **Frontend: Service layer per domain** — tidak ada `fetch()` langsung di komponen; semua lewat `src/lib/services/*.service.ts`. Pola ini konsisten di seluruh frontend termasuk 2 halaman Master Data yang baru.
 - **Client-side role gating** di frontend (`user?.role === 'SuperAdmin' || user?.role === 'WarehouseManager'`) untuk menyembunyikan tombol aksi yang di backend memang dibatasi `ManagerOnly` — ini murni UX (backend tetap jadi source of truth otorisasi via JWT role claim).
@@ -157,3 +170,41 @@ Setiap halaman fitur mengikuti pola: `page.tsx` (server wrapper, `<AppLayout>`) 
 
 ### Testing
 - Ada 1 script `e2e-test.ps1` di root backend (PowerShell) — smoke test end-to-end lewat `Invoke-RestMethod` ke API + `sqlcmd` langsung ke database untuk seeding data uji. Ini **bukan** test framework formal (xUnit/NUnit/Jest) — tidak ditemukan satu pun unit test project di kedua repo.
+
+---
+
+## 6. Referensi Route API
+
+> Sumber kebenaran tunggal untuk base route backend — diverifikasi langsung ke `[Route]` attribute + nama class di tiap file `Controllers/*.cs` pada 2026-07-15, bukan disalin dari `CLAUDE.md` lama. Semua controller memakai konvensi default `[Route("api/[controller]")]` tanpa override — base route = `api/` + nama class dikurangi suffix `Controller`. Routing ASP.NET Core case-insensitive, jadi `/api/Inventory` dan `/api/inventory` sama-sama valid; casing di kolom "Base Route" di bawah mengikuti nama class persis.
+
+| Controller | Base Route | Auth Policy | Catatan |
+|---|---|---|---|
+| `AuthController` | `/api/Auth` | *(publik, tanpa `[Authorize]`)* | Hanya `POST /login` |
+| `InventoryController` | `/api/Inventory` | `AnyStaff` | **Koreksi:** dokumen lama (CLAUDE.md/CURRENT_STATE.md) mencatat ini sebagai `InventoryAccess` — salah, class-level attribute-nya `AnyStaff` |
+| `InventoryAdjustmentController` | `/api/InventoryAdjustment` | `InventoryAccess` (class-level); `ManagerOnly` pada `/{id}/approve` dan `/{id}/reject` | **Koreksi:** dokumen lama mencatat route ini sebagai `/api/adjustment` — tidak pernah ada; frontend memanggil `/inventoryadjustment` |
+| `PutawayController` | `/api/Putaway` | `InboundAccess` | — |
+| `ReceivingController` | `/api/Receiving` | `InboundAccess` | — |
+| `BinLocationController` | `/api/BinLocation` | `AnyStaff` (class-level); `ManagerOnly` pada `POST /` dan `PATCH /{id}/toggle-active` | Tidak punya service layer terpisah (lihat §5) |
+| `MasterSKUController` | `/api/MasterSKU` | `AnyStaff` (class-level); `ManagerOnly` pada `POST /`, `PUT /{id}`, `PATCH /{id}/deactivate` | Tidak punya service layer terpisah (lihat §5) |
+| `PickingController` | `/api/Picking` | `OutboundAccess` | — |
+| `DispatchController` | `/api/Dispatch` | `OutboundAccess` | — |
+| `DashboardController` | `/api/Dashboard` | `AnyStaff` | — |
+
+---
+
+## 7. Referensi Halaman & Fitur Frontend
+
+| Route | Komponen | Fitur |
+|------|-----------|---------|
+| `/login` | `login/page.tsx` | Form sign-in |
+| `/dashboard` | `DashboardContent.tsx` | KPI bento, chart per zona, activity feed (15 pergerakan terakhir) |
+| `/` (home) | `InboundReceivingContent.tsx` | Form inbound receiving |
+| `/putaway` | `PutawayContent.tsx` | Daftar task + modal scan-confirm |
+| `/inventory/stock-on-hand` | `StockOnHandContent.tsx` | Tabel Stock on Hand |
+| `/inventory/adjustment` | `InventoryAdjustmentContent.tsx` | Submit request adjustment |
+| `/inventory/adjustment-approval` | `adjustment-approval/page.tsx` | Approve / reject (tidak ada entri sidebar — hanya via URL langsung, lihat §5 Isu di PROJECT_STATUS.md) |
+| `/outbound/picking` | `PickingListContent.tsx` | Tabel, filter status, modal Create Picking (live SKU check, FIFO hint) |
+| `/outbound/packing` | `PackingContent` + `PickingProcessModal` | Scan rak, scan pallet, konfirmasi qty, pemilih lokasi staging |
+| `/outbound/dispatch` | `DispatchContent.tsx` | Tabel riwayat, slide-over New Dispatch, modal Confirm, modal BAST + print |
+| `/master/sku` | (lihat FIX-H10, PROJECT_STATUS.md §2) | List, tambah, edit, deactivate SKU |
+| `/master/bin-location` | (lihat FIX-H10, PROJECT_STATUS.md §2) | List, tambah, aktifkan/nonaktifkan bin |
