@@ -47,6 +47,41 @@ namespace Syntera.WMS.API.Controllers
         }
 
         /// <summary>
+        /// Submit a QC check result for a pallet — must be "Passed" before putaway is allowed.
+        /// Same InboundAccess actor performs this; no separate QC Inspector role.
+        /// </summary>
+        [HttpPost("qc-check")]
+        public async Task<IActionResult> SubmitQCCheck([FromBody] QCCheckRequest request)
+        {
+            if (request == null)
+                return BadRequest(new { success = false, message = "Request body cannot be null." });
+
+            if (string.IsNullOrWhiteSpace(request.PalletId))
+                return BadRequest(new { success = false, message = "PalletId is required." });
+
+            if (request.Result != "Passed" && request.Result != "Failed")
+                return BadRequest(new { success = false, message = "Result must be 'Passed' or 'Failed'." });
+
+            try
+            {
+                var result = await _putawayService.SubmitQCCheckAsync(request);
+                return Ok(new { success = true, data = result });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { success = false, message = ex.Message });
+            }
+        }
+
+        /// <summary>
         /// Get all pending putaway tasks (ReceivingDetails without a matching InventoryStock).
         /// </summary>
         [HttpGet("pending")]

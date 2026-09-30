@@ -95,7 +95,9 @@ namespace Syntera.WMS.API.Services
                             SKUId = sku.Id,
                             Qty = qtyForPallet,
                             UOMId = detail.UOMId,
-                            PalletId = palletId
+                            PalletId = palletId,
+                            BatchNumber = detail.BatchNumber,
+                            ExpiredDate = detail.ExpiredDate
                         };
 
                         _context.ReceivingDetails.Add(receivingDetail);
@@ -160,6 +162,8 @@ namespace Syntera.WMS.API.Services
         public string? SKUCode { get; set; }
         public int Qty { get; set; }
         public int? UOMId { get; set; }
+        public string? BatchNumber { get; set; }
+        public DateTime? ExpiredDate { get; set; }
     }
 
     public class ReceivingSubmitRequest

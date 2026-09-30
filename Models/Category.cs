@@ -9,5 +9,7 @@ namespace Syntera.WMS.API.Models
         public string? CategoryCode { get; set; }
         public string? CategoryName { get; set; }
         public DateTime? CreatedAt { get; set; }
+
+        public bool RequiresFEFO { get; set; } = false;
     }
 }

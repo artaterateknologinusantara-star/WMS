@@ -41,7 +41,9 @@ namespace Syntera.WMS.API.Controllers
                         quantity = x.Qty,
                         uom = x.UOM,
                         status = x.Status,
-                        lastMovement = x.LastMovementDate
+                        lastMovement = x.LastMovementDate,
+                        batchNumber = x.BatchNumber,
+                        expiredDate = x.ExpiredDate
                     })
                     .ToList();
 

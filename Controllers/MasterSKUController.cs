@@ -31,6 +31,7 @@ namespace Syntera.WMS.API.Controllers
                     skuName      = s.SKUName ?? string.Empty,
                     categoryId   = s.CategoryId,
                     categoryName = s.Category != null ? s.Category.CategoryName ?? string.Empty : string.Empty,
+                    requiresFEFO = s.Category != null && s.Category.RequiresFEFO,
                     uomId        = s.UOMId,
                     uomCode      = s.UOM != null ? s.UOM.UOMCode ?? string.Empty : string.Empty,
                     isActive     = s.Status == "Active",
@@ -47,7 +48,7 @@ namespace Syntera.WMS.API.Controllers
         {
             var categories = await _context.Categories
                 .OrderBy(c => c.CategoryName)
-                .Select(c => new { id = c.Id, categoryCode = c.CategoryCode, categoryName = c.CategoryName })
+                .Select(c => new { id = c.Id, categoryCode = c.CategoryCode, categoryName = c.CategoryName, requiresFEFO = c.RequiresFEFO })
                 .ToListAsync();
 
             return Ok(new { success = true, data = categories });
@@ -59,14 +60,14 @@ namespace Syntera.WMS.API.Controllers
         public async Task<IActionResult> Create([FromBody] SaveSKURequest request)
         {
             if (string.IsNullOrWhiteSpace(request.SKUCode))
-                return BadRequest(new { success = false, message = "SKU Code is required." });
+                return BadRequest(new { success = false, message = "Kode SKU wajib diisi." });
             if (string.IsNullOrWhiteSpace(request.SKUName))
-                return BadRequest(new { success = false, message = "SKU Name is required." });
+                return BadRequest(new { success = false, message = "Nama SKU wajib diisi." });
 
             var exists = await _context.MasterSKUs
                 .AnyAsync(s => s.SKUCode == request.SKUCode.Trim());
             if (exists)
-                return BadRequest(new { success = false, message = $"SKU Code '{request.SKUCode}' already exists." });
+                return BadRequest(new { success = false, message = $"Kode SKU '{request.SKUCode}' sudah digunakan." });
 
             var sku = new MasterSKU
             {
@@ -101,18 +102,18 @@ namespace Syntera.WMS.API.Controllers
         public async Task<IActionResult> Update(int id, [FromBody] SaveSKURequest request)
         {
             if (string.IsNullOrWhiteSpace(request.SKUCode))
-                return BadRequest(new { success = false, message = "SKU Code is required." });
+                return BadRequest(new { success = false, message = "Kode SKU wajib diisi." });
             if (string.IsNullOrWhiteSpace(request.SKUName))
-                return BadRequest(new { success = false, message = "SKU Name is required." });
+                return BadRequest(new { success = false, message = "Nama SKU wajib diisi." });
 
             var sku = await _context.MasterSKUs.FindAsync(id);
             if (sku == null)
-                return NotFound(new { success = false, message = "SKU not found." });
+                return NotFound(new { success = false, message = "SKU tidak ditemukan." });
 
             var codeConflict = await _context.MasterSKUs
                 .AnyAsync(s => s.SKUCode == request.SKUCode.Trim() && s.Id != id);
             if (codeConflict)
-                return BadRequest(new { success = false, message = $"SKU Code '{request.SKUCode}' is already used by another SKU." });
+                return BadRequest(new { success = false, message = $"Kode SKU '{request.SKUCode}' sudah digunakan oleh SKU lain." });
 
             sku.SKUCode    = request.SKUCode.Trim();
             sku.SKUName    = request.SKUName.Trim();
@@ -122,7 +123,7 @@ namespace Syntera.WMS.API.Controllers
 
             await _context.SaveChangesAsync();
 
-            return Ok(new { success = true, message = "SKU updated." });
+            return Ok(new { success = true, message = "SKU berhasil diperbarui." });
         }
 
         // PATCH /api/mastersku/{id}/deactivate
@@ -132,17 +133,17 @@ namespace Syntera.WMS.API.Controllers
         {
             var sku = await _context.MasterSKUs.FindAsync(id);
             if (sku == null)
-                return NotFound(new { success = false, message = "SKU not found." });
+                return NotFound(new { success = false, message = "SKU tidak ditemukan." });
 
             if (sku.Status != "Active")
-                return BadRequest(new { success = false, message = $"SKU '{sku.SKUCode}' is already inactive." });
+                return BadRequest(new { success = false, message = $"SKU '{sku.SKUCode}' sudah nonaktif." });
 
             sku.Status    = "Inactive";
             sku.UpdatedAt = DateTime.UtcNow;
 
             await _context.SaveChangesAsync();
 
-            return Ok(new { success = true, message = $"SKU '{sku.SKUCode}' deactivated." });
+            return Ok(new { success = true, message = $"SKU '{sku.SKUCode}' berhasil dinonaktifkan." });
         }
     }
 

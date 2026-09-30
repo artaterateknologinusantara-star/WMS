@@ -49,12 +49,13 @@ namespace Syntera.WMS.API.Services
                 throw new ArgumentException("Assigned To is required.");
 
             var sku = await _context.MasterSKUs
+                .Include(s => s.Category)
                 .FirstOrDefaultAsync(s => s.SKUCode == request.SKUCode.Trim());
             if (sku == null)
                 throw new InvalidOperationException($"SKU '{request.SKUCode}' not found.");
 
-            // FIFO: all eligible Active pallets, excluding those locked in active picking tasks
-            var stocks = await _context.InventoryStocks
+            // All eligible Active pallets, excluding those locked in active picking tasks.
+            var eligibleStocks = _context.InventoryStocks
                 .Include(s => s.Rack)
                 .Where(s =>
                     s.SKUId == sku.Id &&
@@ -62,9 +63,25 @@ namespace Syntera.WMS.API.Services
                     s.AvailableQty > 0 &&
                     !_context.PickingDetails.Any(pd =>
                         pd.InventoryStockId == s.Id &&
-                        (pd.Status == "pending" || pd.Status == "in-progress")))
-                .OrderBy(s => s.CreatedAt)
-                .ToListAsync();
+                        (pd.Status == "pending" || pd.Status == "in-progress")));
+
+            // Hybrid suggestion rule (business decision, do not change silently):
+            //   - Category.RequiresFEFO == true  → FEFO: nearest ExpiredDate first, so
+            //     perishable goods (food, chemicals) don't rot on the shelf while newer
+            //     stock ships out. Pallets with no ExpiredDate recorded are sorted to the
+            //     end (treated as "unknown expiry", never prioritized) instead of erroring
+            //     or jumping the queue — CreatedAt breaks ties for equal/missing dates.
+            //   - Category.RequiresFEFO == false → FIFO unchanged: oldest CreatedAt first,
+            //     exactly as before this field existed (electronics, packaging, etc).
+            var stocks = sku.Category?.RequiresFEFO == true
+                ? await eligibleStocks
+                    .OrderBy(s => s.ExpiredDate == null ? 1 : 0)
+                    .ThenBy(s => s.ExpiredDate)
+                    .ThenBy(s => s.CreatedAt)
+                    .ToListAsync()
+                : await eligibleStocks
+                    .OrderBy(s => s.CreatedAt)
+                    .ToListAsync();
 
             var totalAvailable = stocks.Sum(s => s.AvailableQty);
             if (totalAvailable < request.RequestedQty)

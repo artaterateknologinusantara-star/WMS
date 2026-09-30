@@ -36,6 +36,13 @@ namespace Syntera.WMS.API.Services
             if (receivingDetail == null)
                 throw new InvalidOperationException($"Pallet {request.PalletId} not found in receiving records.");
 
+            // QC gate — putaway is blocked until this pallet's ReceivingDetail has passed QC.
+            // Enforced here (not just filtered out of GET /pending) so the gate holds even if
+            // this endpoint is called directly, e.g. via a barcode scan that skips the task list.
+            if (receivingDetail.QCStatus != "Passed")
+                throw new InvalidOperationException(
+                    $"Cannot putaway: QC check belum lolos untuk pallet {request.PalletId}, status saat ini: {receivingDetail.QCStatus}.");
+
             // Resolve bin location by code
             var binLocation = await _context.BinLocations
                 .FirstOrDefaultAsync(x => x.BinCode == request.BinCode);
@@ -72,6 +79,8 @@ namespace Syntera.WMS.API.Services
                     ReservedQty = 0,
                     AvailableQty = receivingDetail.Qty,
                     Status = "Active",
+                    BatchNumber = receivingDetail.BatchNumber,
+                    ExpiredDate = receivingDetail.ExpiredDate,
                     LastMovementDate = DateTime.UtcNow,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
@@ -156,9 +165,53 @@ namespace Syntera.WMS.API.Services
                     ReceivingNumber = x.Header != null ? x.Header.ReceivingNumber : string.Empty,
                     SupplierName = x.Header != null ? x.Header.SupplierName ?? string.Empty : string.Empty,
                     Status = "Pending",
-                    CreatedAt = x.Header != null ? x.Header.CreatedAt : DateTime.UtcNow
+                    CreatedAt = x.Header != null ? x.Header.CreatedAt : DateTime.UtcNow,
+                    QCStatus = x.QCStatus,
+                    QCRemarks = x.QCRemarks
                 })
                 .ToListAsync();
+        }
+
+        /// <summary>
+        /// Submit a QC check result for a pallet's ReceivingDetail — the gate that must be
+        /// "Passed" before ConfirmPutawayAsync will allow the pallet into a bin.
+        /// Same actor as putaway (InboundAccess) performs this — no separate QC Inspector role.
+        /// </summary>
+        public async Task<PutawayTaskDto> SubmitQCCheckAsync(QCCheckRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request.PalletId))
+                throw new ArgumentException("PalletId is required");
+
+            if (request.Result != "Passed" && request.Result != "Failed")
+                throw new ArgumentException("Result must be 'Passed' or 'Failed'.");
+
+            var receivingDetail = await _context.ReceivingDetails
+                .Include(x => x.SKU)
+                .Include(x => x.Header)
+                .FirstOrDefaultAsync(x => x.PalletId == request.PalletId)
+                ?? throw new InvalidOperationException($"Pallet {request.PalletId} not found in receiving records.");
+
+            receivingDetail.QCStatus = request.Result;
+            receivingDetail.QCCheckedBy = request.CheckedBy;
+            receivingDetail.QCCheckedAt = DateTime.UtcNow;
+            receivingDetail.QCRemarks = request.Remarks;
+
+            await _context.SaveChangesAsync();
+
+            return new PutawayTaskDto
+            {
+                PalletId = receivingDetail.PalletId ?? string.Empty,
+                SKUId = receivingDetail.SKUId,
+                SKUCode = receivingDetail.SKU?.SKUCode ?? string.Empty,
+                SKUName = receivingDetail.SKU?.SKUName ?? string.Empty,
+                Qty = receivingDetail.Qty,
+                ReceivingNumber = receivingDetail.Header?.ReceivingNumber ?? string.Empty,
+                SupplierName = receivingDetail.Header?.SupplierName ?? string.Empty,
+                Status = "Pending",
+                CreatedAt = receivingDetail.Header?.CreatedAt ?? DateTime.UtcNow,
+                QCStatus = receivingDetail.QCStatus,
+                QCRemarks = receivingDetail.QCRemarks
+            };
         }
 
         /// <summary>
@@ -183,7 +236,9 @@ namespace Syntera.WMS.API.Services
                 AvailableQty = stock.AvailableQty,
                 ReservedQty = stock.ReservedQty,
                 BinCode = stock.Rack?.BinCode ?? string.Empty,
-                Status = stock.Status ?? "Unknown"
+                Status = stock.Status ?? "Unknown",
+                BatchNumber = stock.BatchNumber,
+                ExpiredDate = stock.ExpiredDate
             };
         }
     }
@@ -195,6 +250,14 @@ namespace Syntera.WMS.API.Services
         public string PalletId { get; set; } = string.Empty;
         public string BinCode { get; set; } = string.Empty;
         public int? ConfirmedBy { get; set; }
+    }
+
+    public class QCCheckRequest
+    {
+        public string PalletId { get; set; } = string.Empty;
+        public string Result { get; set; } = string.Empty; // "Passed" | "Failed"
+        public string? Remarks { get; set; }
+        public int? CheckedBy { get; set; }
     }
 
     public class PutawayResult
@@ -220,6 +283,8 @@ namespace Syntera.WMS.API.Services
         public string SupplierName { get; set; } = string.Empty;
         public string Status { get; set; } = "Pending";
         public DateTime CreatedAt { get; set; }
+        public string QCStatus { get; set; } = "Pending";
+        public string? QCRemarks { get; set; }
     }
 
     public class StockPositionDto
@@ -233,5 +298,7 @@ namespace Syntera.WMS.API.Services
         public int ReservedQty { get; set; }
         public string BinCode { get; set; } = string.Empty;
         public string Status { get; set; } = string.Empty;
+        public string? BatchNumber { get; set; }
+        public DateTime? ExpiredDate { get; set; }
     }
 }

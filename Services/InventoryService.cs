@@ -54,7 +54,9 @@ namespace Syntera.WMS.API.Services
                 PalletId = palletId,
                 UOM = sku.UOM?.UOMName ?? string.Empty,
                 Status = sku.Status ?? string.Empty,
-                LastMovementDate = sku.LastMovement.HasValue ? sku.LastMovement.Value.ToString("yyyy-MM-dd HH:mm") : string.Empty
+                LastMovementDate = sku.LastMovement.HasValue ? sku.LastMovement.Value.ToString("yyyy-MM-dd HH:mm") : string.Empty,
+                BatchNumber = stockRecords.FirstOrDefault()?.BatchNumber,
+                ExpiredDate = stockRecords.FirstOrDefault()?.ExpiredDate
             };
         }
 
@@ -81,7 +83,9 @@ namespace Syntera.WMS.API.Services
                 Status = x.Status ?? "Active",
                 LastMovementDate = x.LastMovementDate.HasValue
                     ? x.LastMovementDate.Value.ToString("yyyy-MM-dd HH:mm")
-                    : string.Empty
+                    : string.Empty,
+                BatchNumber = x.BatchNumber,
+                ExpiredDate = x.ExpiredDate
             }).ToList();
         }
 
@@ -113,7 +117,9 @@ namespace Syntera.WMS.API.Services
                 Status = x.Status ?? "Active",
                 LastMovementDate = x.LastMovementDate.HasValue
                     ? x.LastMovementDate.Value.ToString("yyyy-MM-dd HH:mm")
-                    : string.Empty
+                    : string.Empty,
+                BatchNumber = x.BatchNumber,
+                ExpiredDate = x.ExpiredDate
             }).ToList();
         }
 

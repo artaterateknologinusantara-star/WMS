@@ -63,13 +63,22 @@ namespace Syntera.WMS.API.Services
 
         // ── Categories ────────────────────────────────────────────────────
 
+        // RequiresFEFO = true for categories that hold perishable goods (food, chemicals with
+        // shelf life) — picking should prioritize nearest expiry over arrival order for these.
+        // Electronics/Packaging don't expire in the same sense, so they stay FIFO (false).
         private static async Task SeedCategoriesAsync(ApplicationDbContext context)
         {
-            var categories = new[] { "Electronics", "FMCG", "Raw Material", "Packaging" };
-            foreach (var name in categories)
+            var categories = new[]
+            {
+                ("Electronics", false),
+                ("FMCG", true),
+                ("Raw Material", true),
+                ("Packaging", false),
+            };
+            foreach (var (name, requiresFEFO) in categories)
             {
                 if (!await context.Categories.AnyAsync(c => c.CategoryName == name))
-                    context.Categories.Add(new Category { CategoryName = name });
+                    context.Categories.Add(new Category { CategoryName = name, RequiresFEFO = requiresFEFO });
             }
             await context.SaveChangesAsync();
         }

@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Syntera.WMS.API.Data;
 
@@ -11,9 +12,11 @@ using Syntera.WMS.API.Data;
 namespace Syntera.WMS.API.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260715112309_AddBatchExpiredDate")]
+    partial class AddBatchExpiredDate
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -75,9 +78,6 @@ namespace Syntera.WMS.API.Migrations
 
                     b.Property<DateTime?>("CreatedAt")
                         .HasColumnType("datetime2");
-
-                    b.Property<bool>("RequiresFEFO")
-                        .HasColumnType("bit");
 
                     b.HasKey("Id");
 
@@ -451,19 +451,6 @@ namespace Syntera.WMS.API.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<string>("PalletId")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<DateTime?>("QCCheckedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int?>("QCCheckedBy")
-                        .HasColumnType("int");
-
-                    b.Property<string>("QCRemarks")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("QCStatus")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("Qty")

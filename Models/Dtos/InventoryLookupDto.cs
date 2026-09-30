@@ -21,5 +21,9 @@ namespace Syntera.WMS.API.Models.Dtos
         public string Status { get; set; } = string.Empty;
 
         public string LastMovementDate { get; set; } = string.Empty;
+
+        public string? BatchNumber { get; set; }
+
+        public DateTime? ExpiredDate { get; set; }
     }
 }

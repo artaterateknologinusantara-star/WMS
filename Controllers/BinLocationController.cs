@@ -62,14 +62,14 @@ namespace Syntera.WMS.API.Controllers
         public async Task<IActionResult> Create([FromBody] CreateBinRequest request)
         {
             if (string.IsNullOrWhiteSpace(request.BinCode))
-                return BadRequest(new { success = false, message = "BinCode is required." });
+                return BadRequest(new { success = false, message = "Kode Bin wajib diisi." });
             if (string.IsNullOrWhiteSpace(request.Zone))
-                return BadRequest(new { success = false, message = "Zone is required." });
+                return BadRequest(new { success = false, message = "Zona wajib diisi." });
 
             var exists = await _context.BinLocations
                 .AnyAsync(b => b.BinCode == request.BinCode.Trim());
             if (exists)
-                return BadRequest(new { success = false, message = $"BinCode '{request.BinCode}' already exists." });
+                return BadRequest(new { success = false, message = $"Kode Bin '{request.BinCode}' sudah digunakan." });
 
             var bin = new BinLocation
             {
@@ -108,7 +108,7 @@ namespace Syntera.WMS.API.Controllers
         {
             var bin = await _context.BinLocations.FindAsync(id);
             if (bin == null)
-                return NotFound(new { success = false, message = "Bin location not found." });
+                return NotFound(new { success = false, message = "Lokasi bin tidak ditemukan." });
 
             // Guard: don't deactivate an occupied bin
             if (bin.IsActive)
@@ -120,7 +120,7 @@ namespace Syntera.WMS.API.Controllers
                     return BadRequest(new
                     {
                         success = false,
-                        message = $"Cannot deactivate '{bin.BinCode}': bin is currently occupied."
+                        message = $"Tidak dapat menonaktifkan '{bin.BinCode}': bin sedang terisi."
                     });
             }
 

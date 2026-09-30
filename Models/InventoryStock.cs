@@ -27,6 +27,10 @@ namespace Syntera.WMS.API.Models
 
         public string? Status { get; set; }
 
+        public string? BatchNumber { get; set; }
+
+        public DateTime? ExpiredDate { get; set; }
+
         public DateTime? LastMovementDate { get; set; }
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

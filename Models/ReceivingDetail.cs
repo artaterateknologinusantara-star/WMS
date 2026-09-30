@@ -25,5 +25,17 @@ namespace Syntera.WMS.API.Models
         public UOM? UOM { get; set; }
 
         public string? PalletId { get; set; }
+
+        public string? BatchNumber { get; set; }
+
+        public DateTime? ExpiredDate { get; set; }
+
+        public string QCStatus { get; set; } = "Pending";
+
+        public int? QCCheckedBy { get; set; }
+
+        public DateTime? QCCheckedAt { get; set; }
+
+        public string? QCRemarks { get; set; }
     }
 }
