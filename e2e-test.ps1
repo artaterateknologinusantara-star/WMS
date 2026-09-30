@@ -14,6 +14,7 @@ function Log-HEAD { param($msg) Write-Host "`n=== $msg ===" -ForegroundColor Yel
 function Invoke-API {
     param($Method, $Path, $Body)
     $headers = @{ "Content-Type" = "application/json" }
+    if ($global:TOKEN) { $headers["Authorization"] = "Bearer $($global:TOKEN)" }
     $uri = "$BASE$Path"
     try {
         if ($Body) {
@@ -28,13 +29,16 @@ function Invoke-API {
     } catch {
         $status = $_.Exception.Response.StatusCode.value__
         $detail = $_.ErrorDetails.Message
+        if (-not $detail -and $_.Exception.Response) {
+            try { $detail = (New-Object IO.StreamReader($_.Exception.Response.GetResponseStream())).ReadToEnd() } catch {}
+        }
         throw "HTTP $status - $detail"
     }
 }
 
 function Run-SQL {
     param($Query)
-    $result = sqlcmd -S $DB -d $DB_NAME -Q $Query -E -h -1 -W 2>&1
+    $result = sqlcmd -S $DB -d $DB_NAME -Q $Query -E -C -h -1 -W 2>&1
     return ($result | Where-Object { $_ -notmatch "^\s*$" } | Select-Object -First 1)
 }
 
@@ -126,6 +130,7 @@ Log-HEAD "STEP 2 - AUTH: LOGIN SEMUA USER"
 try {
     $loginAdmin = Invoke-API -Method POST -Path "/auth/login" -Body @{ username="admin"; password="Admin@123" }
     $tokenAdmin = $loginAdmin.token
+    $global:TOKEN = $tokenAdmin
     $adminId    = [int]$loginAdmin.userId
     Log-OK "Login admin OK - userId=$adminId role=$($loginAdmin.role)"
 } catch { Log-FAIL "Login admin: $_"; exit 1 }
@@ -272,6 +277,12 @@ foreach ($pallet in $allPallets) {
     $bin = $binCodes[$binIdx % $binCodes.Count]
     $binIdx++
     try {
+        Invoke-API -Method POST -Path "/putaway/qc-check" -Body @{
+            palletId  = $pallet.palletId
+            result    = "Passed"
+            remarks   = "e2e auto QC"
+            checkedBy = $staffId
+        } | Out-Null
         $res = Invoke-API -Method POST -Path "/putaway/confirm" -Body @{
             palletId    = $pallet.palletId
             binCode     = $bin
